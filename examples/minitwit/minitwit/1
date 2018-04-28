@@ -11,7 +11,6 @@
 
 import time
 import requests
-import json
 from sqlite3 import dbapi2 as sqlite3
 from hashlib import md5
 from datetime import datetime
@@ -21,7 +20,6 @@ from werkzeug import check_password_hash, generate_password_hash
 from mt_api import query_db, get_db
 
 
-API_BASE_URL = 'http://localhost:5100'
 DATABASE = '/tmp/minitwit.db'
 PER_PAGE = 30
 DEBUG = True
@@ -33,8 +31,8 @@ app.config.from_envvar('MINITWIT_SETTINGS', silent=True)
 
 def get_user_id(username):
     """Convenience method to look up the id for a username."""
-    rv = requests.get(API_BASE_URL + '/api/v1.0/resources/users/{}'.format(username))
-    return rv.json()['uID']
+    rv = requests.get('http://127.0.0.1:5001/api/v1.0/resources/users/{}/userid'.format(username))
+    return rv.text if rv else None
     #return rv.text
 
 
@@ -53,14 +51,8 @@ def gravatar_url(email, size=80):
 def before_request():
     g.user = None
     if 'user_id' in session:
-        print('*****************')
-        #g.user = query_db('select * from user where user_id = ?',
-                          #[session['user_id']], one=True)
-        payload={'user_id': session['user_id']}
-        print('payload: {}'.format(payload))
-        rv = requests.post(API_BASE_URL +'/api/v1.0/resources/user', json=payload)
-        g.user= rv.json().get('g.user')
-        print('g.user:{}'.format(g.user))
+        g.user = query_db('select * from user where user_id = ?',
+                          [session['user_id']], one=True)
 
 
 @app.route('/')
@@ -71,33 +63,23 @@ def timeline():
     """
     if not g.user:
         return redirect(url_for('public_timeline'))
-    #return render_template('timeline.html', messages=query_db('''
-        #select message.*, user.* from message, user
-        #where message.author_id = user.user_id and (
-            #user.user_id = ? or
-            #user.user_id in (select whom_id from follower
-                                    #where who_id = ?))
-        #order by message.pub_date desc limit ?''',
-        #[session['user_id'], session['user_id'], PER_PAGE]))
-    user_id = session['user_id']
-    print('user_id:{}'.format(user_id))
-    payload={'user_id' : user_id}
-    rv = requests.post(API_BASE_URL +'/api/v1.0/resources/', json=payload)
-    response = rv.json()
-    return render_template('timeline.html', messages=response.get('messages')) 
+    return render_template('timeline.html', messages=query_db('''
+        select message.*, user.* from message, user
+        where message.author_id = user.user_id and (
+            user.user_id = ? or
+            user.user_id in (select whom_id from follower
+                                    where who_id = ?))
+        order by message.pub_date desc limit ?''',
+        [session['user_id'], session['user_id'], PER_PAGE]))
 
 
 @app.route('/public')
 def public_timeline():
     """Displays the latest messages of all users."""
-    rv = requests.get(API_BASE_URL +'/api/v1.0/resources/timeline/public')
-    #print('rv.text():{}'.format(rv.text()))
-    print('rv.json():{}'.format(rv.json()))
-    response = rv.json()
-    return render_template('timeline.html',  messages=response.get('messages'))
-    #return render_template('timeline.html', messages=query_db('''select message.*, user.* from message, user where message.author_id = user.user_id order by message.pub_date desc limit ?''', [PER_PAGE]))
-
-
+    return render_template('timeline.html', messages=query_db('''
+        select message.*, user.* from message, user
+        where message.author_id = user.user_id
+        order by message.pub_date desc limit ?''', [PER_PAGE]))
 
 @app.route('/<username>/follow')
 def follow_user(username):
@@ -109,53 +91,33 @@ def follow_user(username):
         abort(404)
     user_id = session['user_id']
     payload = {'whom_id': whom_id}
-    rv = requests.post(API_BASE_URL +'/api/v1.0/resources/users/{}/follow'.format(user_id), json=payload)
+    rv = requests.post('http://127.0.0.1:5001/api/v1.0/resources/users/{}/follow'.format(user_id), json=payload)
     return redirect(url_for('user_timeline', username=username))
 
 
-@app.route('/favicon.ico')
-def empty_response():
-    return '' 
 
 @app.route('/<username>')
 def user_timeline(username):
     """Display's a users tweets."""
-    #profile_user = query_db('select * from user where username = ?',
-                            #[username], one=True)
-    #print(username)
-    #print(session['user_id'])
-    #print(profile_user['user_id'])
-    #if profile_user is None:
-        #abort(404)
-    #followed = False
-    payload = {}
-    if g.user:
-        payload = {'user_id': session['user_id']}
-        print('payload:{}'.format(payload))
-    print('payload out of if:{}'.format(payload))
-    print('username:{}'.format(username))
-    rv = requests.post(API_BASE_URL +'/api/v1.0/resources/timeline/{}'.format(username), json=payload)
-    
-    response = rv.json()
-    profile_user = response['profile_user']
-    #profile_user = rv.json()['profile_user']
+    profile_user = query_db('select * from user where username = ?',
+                            [username], one=True)
+    print(session['user_id'])
+    print(profile_user['user_id'])
     if profile_user is None:
         abort(404)
-        #followed = query_db('''select 1 from follower where
-            #follower.who_id = ? and follower.whom_id = ?''',
-            #[session['user_id'], profile_user['user_id']],
-            #one=True) is not None
-        #print('followed')
-        #print(followed)
-    #return render_template('timeline.html', messages=query_db('''
-            #select message.*, user.* from message, user where
-            #user.user_id = message.author_id and user.user_id = ?
-            #order by message.pub_date desc limit ?''',
-            #[profile_user['user_id'], PER_PAGE]), followed=followed,
-            #profile_user=profile_user)
+    followed = False
+    if g.user:
+        followed = query_db('''select 1 from follower where
+            follower.who_id = ? and follower.whom_id = ?''',
+            [session['user_id'], profile_user['user_id']],
+            one=True) is not None
+    return render_template('timeline.html', messages=query_db('''
+            select message.*, user.* from message, user where
+            user.user_id = message.author_id and user.user_id = ?
+            order by message.pub_date desc limit ?''',
+            [profile_user['user_id'], PER_PAGE]), followed=followed,
+            profile_user=profile_user)
 
-    #return render_template('timeline.html', messages=rv.json()['messages'], followed=rv.json()['followed'], profile_user=profile_user)
-    return render_template('timeline.html', messages=response.get('messages'), followed=response.get('followed'), profile_user=profile_user) 
 @app.route('/<username>/unfollow')
 def unfollow_user(username):
     """Removes the current user as follower of the given user."""
@@ -167,7 +129,7 @@ def unfollow_user(username):
         abort(404)
     user_id = session['user_id']
     payload = {'whom_id': whom_id}
-    rv = requests.post(API_BASE_URL +'/api/v1.0/resources/users/{}/unfollow'.format(user_id), json=payload)
+    rv = requests.post('http://127.0.0.1:5001/api/v1.0/resources/users/{}/unfollow'.format(user_id), json=payload)
     return redirect(url_for('user_timeline', username=username))
 
 
@@ -184,7 +146,7 @@ def add_message():
         #print(author_id)
         #print(text)
         payload={'text':text}
-        rv = requests.post(API_BASE_URL +'/api/v1.0/resources/messages_add/{}'.format(author_id), json=payload)
+        rv = requests.post('http://127.0.0.1:5001/api/v1.0/resources/messages_add/{}'.format(author_id), json=payload)
     return redirect(url_for('timeline'))
     
 
@@ -195,19 +157,16 @@ def login():
         return redirect(url_for('timeline'))
     error = None
     if request.method == 'POST':
-        username = request.form['username']
-        rv = requests.get(API_BASE_URL + '/api/v1.0/resources/users/login/{}'.format(username))
-        user = rv.json()['user']
-        #user = query_db('''select * from user where
-            #username = ?''', [request.form['username']], one=True)
+        user = query_db('''select * from user where
+            username = ?''', [request.form['username']], one=True)
         if user is None:
             error = 'Invalid username'
-        elif not check_password_hash(user[0]['pw_hash'],
+        elif not check_password_hash(user['pw_hash'],
                                      request.form['password']):
             error = 'Invalid password'
         else:
             flash('You were logged in')
-            session['user_id'] = user[0]['user_id']
+            session['user_id'] = user['user_id']
             return redirect(url_for('timeline'))
     return render_template('login.html', error=error)
 
@@ -232,7 +191,14 @@ def register():
             error = 'The username is already taken'
         else:
             payload={'username':request.form['username'], 'email':request.form['email'], 'pw_hash':generate_password_hash(request.form['password'])}
-            rv = requests.post(API_BASE_URL +'/api/v1.0/register', json=payload)
+            rv = requests.post('http://127.0.0.1:5001/api/v1.0/register', json=payload)
+            #db = get_db()
+            #db.execute('''insert into user (
+            #  username, email, pw_hash) values (?, ?, ?)''',
+            #  [request.form['username'], request.form['email'],
+            #   generate_password_hash(request.form['password'])])
+            #db.commit()
+            #flash('You were successfully registered and can login now')
             return redirect(url_for('login'))
     return render_template('register.html', error=error)
 

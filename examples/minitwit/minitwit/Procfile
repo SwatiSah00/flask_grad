@@ -1,0 +1,2 @@
+frontend: FLASK_APP=minitwit.py flask run -p $PORT
+backend: FLASK_APP=mt_api.py   flask run -p $PORT
