@@ -10,14 +10,14 @@ from datetime import datetime
 from flask import Flask, request, session, url_for, redirect, \
      render_template, abort, g, flash, _app_ctx_stack,jsonify
 from werkzeug import check_password_hash, generate_password_hash
+import redis
 
-#from sqlite3 import dbapi2 as sqlite3
-#from minitwit import *
-#from flask_basicauth import BasicAuth
 
-#app = Flask(__name__)
-# configuration
 
+#conection to redis
+r = redis.StrictRedis(host='localhost', port=6379, db=0)
+count_follower='count_follower'
+count_visits='count_visits'
 
 DATABASE = '/tmp/minitwit.db'
 PER_PAGE = 30
@@ -155,12 +155,23 @@ def user_follow(user_id):
     db = get_db()
     whom_id = request.json.get('whom_id')
     db.execute('insert into follower(who_id,whom_id) values (?,?)',[user_id, whom_id])
-    db.commit() 
+    db.commit()
+    print('whom_id:{}'.format(whom_id)) 
+    username_val = query_db('select username from user where user_id=?', [whom_id])
+    username = username_val[0]['username']
+    #db.commit()
+    print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
+    r.zincrby(count_follower,username,amount=1)
+    #r.zadd(count_follower,score,request.json.get('username') )  
+    print("Score of the whom_id with value '{}': ".format(username))
+    print(r.zscore(count_follower,username))
+    print("user_id'{}': ".format(user_id))
     return jsonify("followed successful"),201
 
 
 @app.route('/api/v1.0/resources/timeline/<username>', methods=['POST'])
 def user_timeline(username):
+    print('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%')
     user_id = request.json.get('user_id')
     print('user_id:{}'.format(user_id))
     print('username:{}'.format(username))
@@ -174,6 +185,10 @@ def user_timeline(username):
     #else:
         #followed = True
     messages = query_db('''select message.*, user.* from message, user where user.user_id = message.author_id and user.user_id = ? order by message.pub_date desc limit ?''',[profile_user['user_id'], PER_PAGE] )
+    #r.zadd(count_visits,score,username)
+    r.zincrby(count_visits,username,amount=1)
+    print("Score of the user with value '{}': ".format(username))
+    print(r.zscore(count_visits,username))
     return jsonify({'profile_user': profile_user, 'messages': messages, 'followed': followed})
 
 
@@ -182,7 +197,26 @@ def user_unfollow(user_id):
     db = get_db()
     whom_id = request.json.get('whom_id')
     db.execute('delete from follower where who_id=? and whom_id=?', [user_id,whom_id])
-    db.commit()
+    db.commit() 
+    username_val = query_db('select username from user where user_id=?', [whom_id])
+    username = username_val[0]['username']
+    #db.commit()
+    print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+                  
+    #r.zincrby(count_follower,whom_id,amount=1)
+    #r.zadd(count_follower,score,request.json.get('username') )           
+    print("Score of the whom_id with value '{}': ".format(username))       
+    print(r.zscore(count_follower,username))
+    print("user_id:'{}' ".format(user_id))
+    print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+    print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+    score_unfollow = r.zscore(count_follower,username)
+    score_unfollow = score_unfollow -1;
+    r.zadd(count_follower,score_unfollow,username)
+    print("New Score of the whom_id with value '{}': ".format(username))
+    print(r.zscore(count_follower,username))
+    print("user_id:'{}' ".format(user_id))
+      
     return jsonify("unfollowed successful"),201
 
 
@@ -193,7 +227,17 @@ def login(username):
     print('99999999999999999999user :{}'.format(user))
     return jsonify({'user':user})
 
+@app.route('/api/v1.0/resources/mostviewed')
+def mostviewed():
+    data = r.zrange(count_visits,0,-1,desc=True)
+    #zrange(name, start, end, desc=False, withscores=False, score_cast_func=<type 'float'>)
+    return jsonify({'data':data})
 
+@app.route('/api/v1.0/resources/mostfollowed')
+def mostfollowed():
+    data = r.zrange(count_follower,0,-1,desc=True)
+    #return ''
+    return jsonify({'data':data})
 
 @app.route('/api/v1.0/register', methods=['POST'])
 def register():
@@ -212,6 +256,13 @@ def register():
     db.execute('''insert into user (
               username, email, pw_hash) values (?, ?, ?)''',(entry['username'], entry['email'],entry['pw_hash']))
     db.commit()
+    
+    follower_score = 0
+    r.zadd(count_follower,follower_score,request.json.get('username') )
+    print("Score of the element with value '{}': ".format(request.json.get('username')))
+    print(r.zscore(count_follower,request.json.get('username')))
+    visit_score = 0
+    r.zadd(count_visits,visit_score,request.json.get('username'))
    # flash('Your have been registered')
 
    # return jsonify({'mt':entry}), 201

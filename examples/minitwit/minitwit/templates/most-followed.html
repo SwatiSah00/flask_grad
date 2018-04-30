@@ -1,0 +1,9 @@
+{% extends "layout.html" %}                                   
+{% block body %}
+<ul class="messages">
+  {% for x in data %}
+    <li>{{x}}</li>                                        
+  {% endfor %}
+  </ul>
+{% endblock %}
+

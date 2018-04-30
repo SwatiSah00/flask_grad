@@ -12,18 +12,18 @@
 import time
 import requests
 import json
-from sqlite3 import dbapi2 as sqlite3
+#from sqlite3 import dbapi2 as sqlite3
 from hashlib import md5
 from datetime import datetime
 from flask import Flask, request, session, url_for, redirect, \
      render_template, abort, g, flash, _app_ctx_stack
 from werkzeug import check_password_hash, generate_password_hash
-from mt_api import query_db, get_db
+#from mt_api import query_db, get_db
 
 
 API_BASE_URL = 'http://localhost:5100'
-DATABASE = '/tmp/minitwit.db'
-PER_PAGE = 30
+#DATABASE = '/tmp/minitwit.db'
+#PER_PAGE = 30
 DEBUG = True
 SECRET_KEY = b'_5#y2L"F4Q8z\n\xec]/'
 
@@ -211,6 +211,22 @@ def login():
             return redirect(url_for('timeline'))
     return render_template('login.html', error=error)
 
+@app.route('/mostviewed')
+def mostviewed():
+    print('qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq')
+    rv = requests.get(API_BASE_URL +'/api/v1.0/resources/mostviewed')
+    response = rv.json()
+    print('rv.json():{}'.format(rv.json()))
+    return render_template('mostviewed.html',data=response['data'])
+    #return render_template('timeline.html',  messages=response.get('messa
+    #return str(response['data'])
+
+@app.route('/mostfollowed')
+def mostfollowed():
+    print('zzzzzzzzzzzzzzzzzzzzzzzzzzzzzz')
+    rv = requests.get(API_BASE_URL +'/api/v1.0/resources/mostfollowed')
+    print('rv.json():{}'.format(rv.json()))
+    return render_template('most-followed.html',data=rv.json()['data'])
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
